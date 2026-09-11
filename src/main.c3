@@ -29,9 +29,55 @@ fn int main(String[] args)
 	return succession;
 }
 
-fn void data_callback(void* user_data, uptr buffer, int buffer_size)
-{
-	ulong buffer_frames = buffer;
+// Event callback functions
+
+fn void mix_audio(float[] output, int dt_samples, TrackerState* tracker_state) {}
+
+fn void draw_waveform(AudioClip clip) {
+	AudioClipInstance audio_instance = AudioClipInstance {
+		x = 0,
+		y = 0,
+		w = 0,
+		h = 0,
+	};
+	render_waveform(
+		app_state.renderer,
+		clip,
+		audio_instance.x,
+		audio_instance.y,
+		audio_instance.w,
+		audio_instance.h,
+	);
+	reposition_waveform(clip, audio_instance.x, audio_instance.y);
+	resize_waveform(clip, audio_instance.w, audio_instance.h);
+}
+
+fn void resize_waveform(AudioClip clip, int w, int h) {}
+
+fn void reposition_waveform(AudioClip clip, int x, int y) {}
+
+fn void render_waveform(
+	SDL_Renderer* renderer,
+	AudioClip clip,
+	int x,
+	int y,
+	int w,
+	int h,
+) {}
+
+fn void data_callback(void* p_user_data, void* p_buffer, int buffer_size) {
+	uint frame_buffer_size =
+		buffer_size /
+		mini.get_bytes_per_frame(
+			mini.format.f32,
+			mini.engine_get_channels(&app_state.audio_engine),
+		);
+	mini.engine_read_pcm_frames(
+		&app_state.audio_engine,
+		p_buffer,
+		cast(u64)(frame_buffer_size),
+		nil,
+	);
 }
 
 fn AudioResult engine_init(MAEngineConfig* config, MAEngine* engine)
@@ -54,6 +100,31 @@ fn Sound[] initialise_multiple_sounds()
 }
 
 // Sound AOS functions
+
+fn int initialise_sound(String filepath, Sound* sound, AppState* state)
+{
+	AudioSpec* spec = null;
+	if (spec == null) {
+		spec = (AudioSpec) { };
+	}
+
+	sound.sound_data = null;
+	sound.sound_length = null;
+
+	sound.audio_stream = sdl.CreateAudioStream(spec, spec);
+	if (&sound.audio_stream == null) {
+		fmt.println("Failed to create audio stream");
+		return 1;
+	}
+
+	if (!sdl.BindAudioStream(app_state.audio_device_id, sound.audio_stream)) {
+		fmt.println("Failed to bind audio stream");
+		return 1;
+	}
+	defer SDL_free(spec);
+
+	return 0;
+}
 
 fn int initialise_sound(String wav_filepath, Sound* device_sound, AppState* app_state)
 {
@@ -143,8 +214,8 @@ struct AudioEngine
 {
 	AppState[] application_states;
 	UserSession[] user_sessions;
-	TrackerCache[] tracker_caches; // Works as a discrete bar/timeline section (bisect/dissection)
-	WaveformCache[] waveform_caches; // initialise Waveforms (with cache) after Tracker mechanics
+	Tracker[] trackers; // Works as a discrete bar/timeline section (bisect/dissection)
+	Waveform[] waveforms; // initialise Waveforms (with cache) after Tracker mechanics
 }
 
 struct AudioConfig
@@ -171,18 +242,6 @@ struct AppState
 // TODO: Array-of-Structs or Structures-of-Arrays for all of the following data structures
 
 // Beats-per-minute
-
-struct WaveformAOS
-{
-	Waveform[] waveforms;
-}
-
-// Bars
-
-struct TrackerAOS
-{
-	Tracker[] trackers;
-}
 
 struct Waveform
 {
@@ -224,18 +283,6 @@ struct AudioClip
 	int index;
 }
 
-// Caching
-
-struct WaveformCache
-{
-	Memento waveform_memento;
-}
-
-struct TrackerCache
-{
-	Memento tracker_memento;
-}
-
 // Sessions
 
 struct UserSession
@@ -252,7 +299,7 @@ struct Session
 
 struct Memento
 {
-	String[][] memento_matrix_data; // String matrix data for reading-and-writing
+	String[][] serials; // String matrix data for reading-and-writing
 	// NOTE: YAML or JSON for hierarchical data
 	// NOTE: Controlled Binary Serialisation process or Protocol Buffer for every object which writes their state out in a controlled way
 }
@@ -262,13 +309,7 @@ struct Memento
 struct Amplitude
 {
 	float radius;
-	Vector2 point;
-}
-
-struct Vector2
-{
-	float x;
-	float y;
+	Vec2 point;
 }
 
 typedef _MAResult @private = void*;

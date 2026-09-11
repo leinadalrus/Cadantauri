@@ -34,11 +34,11 @@ fn int main(String[] args)
 fn void mix_audio(float[] output, int dt_samples, TrackerState* tracker_state) {}
 
 fn void draw_waveform(AudioClip clip) {
-	AudioClipInstance audio_instance = AudioClipInstance {
-		x = 0,
-		y = 0,
-		w = 0,
-		h = 0,
+	AudioClipInstance audio_instance = {
+		.x = 0,
+		.y = 0,
+		.w = 0,
+		.h = 0,
 	};
 	render_waveform(
 		app_state.renderer,
@@ -103,52 +103,52 @@ fn Sound[] initialise_multiple_sounds()
 
 fn int initialise_sound(String filepath, Sound* sound, AppState* state)
 {
-	AudioSpec* spec = null;
+	SDL_AudioSpec* spec = null;
 	if (spec == null) {
-		spec = (AudioSpec) { };
+		spec = { };
 	}
 
 	sound.sound_data = null;
-	sound.sound_length = null;
+	sound.sound_data_length = null;
 
-	sound.audio_stream = sdl.CreateAudioStream(spec, spec);
+	sound.audio_stream = sdl_CreateAudioStream(spec, spec);
 	if (&sound.audio_stream == null) {
-		fmt.println("Failed to create audio stream");
+		io::print("Failed to create audio stream");
 		return 1;
 	}
 
-	if (!sdl.BindAudioStream(app_state.audio_device_id, sound.audio_stream)) {
-		fmt.println("Failed to bind audio stream");
+	if (!sdl_BindAudioStream(app_state.audio_device_id, sound.audio_stream)) {
+		io::print("Failed to bind audio stream");
 		return 1;
 	}
-	defer SDL_free(spec);
+	defer sdl_Free(spec);
 
 	return 0;
 }
 
-fn int initialise_sound(String wav_filepath, Sound* device_sound, AppState* app_state)
+fn int initialise_device_sound_data(String sound_filepath, Sound* device_sound, AppState* app_state)
 {
 	SDL_AudioSpec* audio_spec = null; // How do we safely allocate memory here?
 
 	// Load the ogg file and initialize the Sound struct
 	// This is a placeholder implementation; actual implementation will depend on SDL functions
-	device_sound.wav_data = null; // Load ogg data from filename
-	device_sound.wav_data_length = null; // Set length of ogg data
+	device_sound.sound_data= null; // Load ogg data from filename
+	device_sound.sound_data_length = null; // Set length of ogg data
 	device_sound.audio_stream = null; // Create audio stream from ogg data
 
-	device_sound.audio_stream = create_audio_stream(); // Create audio stream
+	device_sound.audio_stream = sdl_CreateAudioStream(audio_spec, audio_spec); // Create audio stream
 	if (!device_sound.audio_stream)
 	{
 		io::printn("Failed to create audio stream for file");
 		return 1;
 	}
-	if (!sdl_bindaudiostream(app_state.audio_device, device_sound.audio_stream))
+	if (!sdl_BindAudioStream(app_state.audio_device, device_sound.audio_stream))
 	{
 		io::printn("Failed to bind audio stream for file");
 		return 1;
 	}
 
-	sdl_free(wav_filepath); // Free the ogg file path string if necessary, maybe use SDL_free or similar function
+	sdl_Free(sound_filepath); // Free the ogg file path string if necessary, maybe use SDL_free or similar function
 
 	return 0; // Return false if no errors, true if otherwise
 }
@@ -187,28 +187,31 @@ extern fn void _ma_engine_uninit(AudioEngine* engine) @cname("ma_engine_uninit")
 
 // Create
 
-extern fn void sdl_init() @cname("SDL_Init") @public;
-extern fn SDL_AudioStream* create_audio_stream() @cname("SDL_CreateAudioStream") @public;
+extern fn void sdl_Init() @cname("SDL_Init") @public;
+extern fn SDL_AudioStream* sdl_CreateAudioStream(
+	SDL_AudioSpec* desired_spec,
+	SDL_AudioSpec* obtained_spec
+) @cname("SDL_CreateAudioStream") @public;
 
 // Read
 
-extern fn void sdl_loadwav() @cname("SDL_LoadWAV") @public;
-extern fn int sdl_bindaudiostream(
+extern fn void sdl_LoadWav() @cname("SDL_LoadWAV") @public;
+extern fn int sdl_BindAudioStream(
 	SDL_AudioDeviceID audio_device,
 	SDL_AudioStream* audio_stream
 ) @cname("SDL_BindAudioStream") @public;
-extern fn void sdl_openaudiodevice(
+extern fn void sdl_OpenAudioDevice(
 	int audio_device_flag,
 	void* audio_device_data
 ) @cname("SDL_OpenAudioDevice") @public;
 
 // Destroy
 
-extern fn void sdl_closedevice(SDL_AudioDeviceID* audio_device) @cname("SDL_CloseAudioDevice") @public;
-extern fn void sdl_destroyaudiostream(SDL_AudioStream* audio_stream) @cname("SDL_DestroyAudioStream") @public;
-extern fn void sdl_free(void* data) @cname("SDL_free") @public;
-extern fn void sdl_quit() @cname("SDL_Quit") @public;
-extern fn void sdl_closewindow() @cname("SDL_CloseWindow") @public;
+extern fn void sdl_CloseDevice(SDL_AudioDeviceID* audio_device) @cname("SDL_CloseAudioDevice") @public;
+extern fn void sdl_DestroyAudioStream(SDL_AudioStream* audio_stream) @cname("SDL_DestroyAudioStream") @public;
+extern fn void sdl_Free(void* data) @cname("SDL_free") @public;
+extern fn void sdl_Quit() @cname("SDL_Quit") @public;
+extern fn void sdl_DestroyWindow() @cname("SDL_DestroyWindow") @public;
 
 struct AudioEngine
 {
@@ -253,9 +256,16 @@ struct Waveform
 
 struct Sound
 {
-	uint* wav_data;
-	uint* wav_data_length;
+	uint* sound_data;
+	uint* sound_data_length;
 	SDL_AudioStream* audio_stream;
+}
+
+struct TrackerState {
+	AudioTrack[] audio_tracks;
+	float tempo;
+	float playhead;
+	int is_playing;
 }
 
 struct Tracker
@@ -268,19 +278,33 @@ struct Tracker
 struct AudioTrack
 {
 	AudioClip[] clips;
-	String path;
-	double sample_rate;
-	double playhead;
-	uint channels;
-	int is_playing;
+	String filename;
+	String name;
+	float gain;
+	int is_muted;
+	int is_soloing;
 }
 
 struct AudioClip
 {
+	String filepath;
 	String name;
 	float[] samples;
+	int sample_rate;
+	int start_tick;
 	int channels;
-	int index;
+	float gain;
+	float pan;
+	float pitch;
+	int is_looping;
+}
+
+struct AudioClipInstance
+{
+	int w;
+	int h;
+	int x;
+	int y;
 }
 
 // Sessions
